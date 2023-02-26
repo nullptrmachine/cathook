@@ -34,7 +34,7 @@ bool IsBomb(CachedEntity *ent)
         return false;
 
     // Check if the stickybomb is the players own
-    if ((CE_INT(ent, netvar.hThrower) & 0xFFF) != g_pLocalPlayer->entity->m_IDX)
+    if (HandleToIDX(CE_INT(ent, netvar.hThrower)) != g_pLocalPlayer->entity->m_IDX)
         return false;
 
     // Check passed, return true
@@ -93,7 +93,7 @@ bool IsTarget(CachedEntity *ent)
 }
 
 static int wait_ticks = 0;
-void CreateMove()
+static void CreateMove()
 {
     // Check user settings if auto-sticky is enabled
     if (!enable)
@@ -124,7 +124,7 @@ void CreateMove()
     targets.clear();
 
     // Cycle through the ents and search for valid ents
-    for (auto &ent : entity_cache::valid_ents)
+    for (auto const &ent : entity_cache::valid_ents)
     {
         // Assign the for loops index to an ent
 

@@ -30,44 +30,51 @@ struct CachedHitbox
 
 class EntityHitboxCache
 {
+private:
+    int hit_idx;
+    bool m_bModelSet      = false;
+    bool m_bInit          = false;
+    bool m_bSuccess       = false;
+    model_t *m_pLastModel = nullptr;
+    CachedEntity *parent_ref;
+
+    uint_fast64_t m_VisCheckValidationFlags = 0;
+    uint_fast64_t m_VisCheck                = 0;
+    void Init();
+
 public:
-    EntityHitboxCache();
-    ~EntityHitboxCache();
+    EntityHitboxCache() = default;
+    EntityHitboxCache(int in_IDX) : hit_idx(in_IDX)
+    {
+    }
 
     CachedHitbox *GetHitbox(int id);
-    void Update();
-    void InvalidateCache();
+    uint_fast64_t m_CacheValidationFlags = 0;
+    void InvalidateCache()
+    {
+        bones_setup               = false;
+        m_CacheValidationFlags    = 0;
+        m_VisCheckValidationFlags = 0;
+        m_bInit                   = false;
+        m_bSuccess                = false;
+    }
     bool VisibilityCheck(int id);
-    void Init();
-    int GetNumHitboxes();
-    void Reset();
+    int GetNumHitboxes()
+    {
+        if (!m_bInit)
+            Init();
+        if (!m_bSuccess)
+            return 0;
+        return m_nNumHitboxes;
+    }
     matrix3x4_t *GetBones(int numbones = -1);
 
     // for "fixing" bones to use the reconstructed ones
     void UpdateBones();
-
-    int m_nNumHitboxes;
-    bool m_bModelSet;
-    bool m_bInit;
-    bool m_bSuccess;
-
-    model_t *m_pLastModel;
-    CachedEntity *parent_ref; // TODO FIXME turn this into an actual reference
-
-    bool m_VisCheckValidationFlags[CACHE_MAX_HITBOXES]{ false };
-    bool m_VisCheck[CACHE_MAX_HITBOXES]{ false };
-    bool m_CacheValidationFlags[CACHE_MAX_HITBOXES]{ false };
+    int m_nNumHitboxes = 0;
     std::vector<CachedHitbox> m_CacheInternal;
 
     std::vector<matrix3x4_t> bones;
     bool bones_setup{ false };
 };
-
-extern EntityHitboxCache array[2048];
-inline EntityHitboxCache &Get(unsigned i)
-{
-    if (i > 2048)
-        throw std::out_of_range("Requested out-of-range entity hitbox cache entry!");
-    return array[i];
-}
 } // namespace hitbox_cache

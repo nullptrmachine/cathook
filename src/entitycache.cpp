@@ -10,49 +10,9 @@
 #include <time.h>
 #include <settings/Float.hpp>
 #include "soundcache.hpp"
-
-bool IsProjectileACrit(CachedEntity *ent)
+#include <Warp.hpp>
+inline void CachedEntity::Update()
 {
-    if (ent->m_bGrenadeProjectile())
-        return CE_BYTE(ent, netvar.Grenade_bCritical);
-    return CE_BYTE(ent, netvar.Rocket_bCritical);
-}
-// This method of const'ing the index is weird.
-CachedEntity::CachedEntity() : m_IDX(int(((unsigned) this - (unsigned) &entity_cache::array) / sizeof(CachedEntity))), hitboxes(hitbox_cache::Get(unsigned(m_IDX)))
-{
-#if PROXY_ENTITY != true
-    m_pEntity = nullptr;
-#endif
-    m_fLastUpdate = 0.0f;
-}
-
-void CachedEntity::Reset()
-{
-    m_bAnyHitboxVisible = false;
-    m_bVisCheckComplete = false;
-    m_lLastSeen         = 0;
-    m_lSeenTicks        = 0;
-    memset(&player_info, 0, sizeof(player_info_s));
-    m_vecAcceleration.Zero();
-    m_vecVOrigin.Zero();
-    m_vecVelocity.Zero();
-    m_fLastUpdate = 0;
-}
-
-CachedEntity::~CachedEntity()
-{
-}
-
-static settings::Float ve_window{ "debug.ve.window", "0" };
-static settings::Boolean ve_smooth{ "debug.ve.smooth", "true" };
-static settings::Int ve_averager_size{ "debug.ve.averaging", "0" };
-
-void CachedEntity::Update()
-{
-    auto raw = RAW_ENT(this);
-
-    if (!raw)
-        return;
 #if PROXY_ENTITY != true
     m_pEntity = g_IEntityList->GetClientEntity(idx);
     if (!m_pEntity)
@@ -60,124 +20,127 @@ void CachedEntity::Update()
         return;
     }
 #endif
-    m_lSeenTicks = 0;
-    m_lLastSeen  = 0;
-
-    hitboxes.Update();
-
+    m_lLastSeen = 0;
+    hitboxes.InvalidateCache();
     m_bVisCheckComplete = false;
-
-    if (m_Type() == EntityType::ENTITY_PLAYER)
-        GetPlayerInfo(m_IDX, &player_info);
 }
 
-// FIXME maybe disable this by default
-static settings::Boolean fast_vischeck{ "debug.fast-vischeck", "true" };
+inline CachedEntity::CachedEntity(u_int16_t idx) : m_IDX(idx), hitboxes(hitbox_cache::EntityHitboxCache{ idx })
+{
+#if PROXY_ENTITY != true
+    m_pEntity = nullptr;
+#endif
+}
+inline CachedEntity::~CachedEntity()
+{
+    delete player_info;
+    player_info = 0;
+}
+static settings::Float ve_window{ "debug.ve.window", "0" };
+static settings::Boolean ve_smooth{ "debug.ve.smooth", "true" };
+static settings::Int ve_averager_size{ "debug.ve.averaging", "0" };
 
 bool CachedEntity::IsVisible()
 {
-    static constexpr int optimal_hitboxes[] = { hitbox_t::head, hitbox_t::foot_L, hitbox_t::hand_R, hitbox_t::spine_1 };
-    static bool vischeck0, vischeck;
-
     PROF_SECTION(CE_IsVisible);
     if (m_bVisCheckComplete)
         return m_bAnyHitboxVisible;
-
-    vischeck0 = IsEntityVectorVisible(this, m_vecOrigin(), true);
-
-    if (vischeck0)
+    auto hitbox   = hitboxes.GetHitbox(std::max(0, (hitboxes.GetNumHitboxes() >> 1) - 1));
+    Vector result = hitbox->center;
+    if (!hitbox)
+        result = m_vecOrigin();
+    // Just check a centered hitbox. This is mostly used for ESP anyway
+    if (IsEntityVectorVisible(this, result, true, MASK_SHOT_HULL, nullptr, true))
     {
         m_bAnyHitboxVisible = true;
         m_bVisCheckComplete = true;
         return true;
     }
 
-    if (m_Type() == ENTITY_PLAYER && fast_vischeck)
-    {
-        for (int i = 0; i < 4; i++)
-        {
-            if (hitboxes.VisibilityCheck(optimal_hitboxes[i]))
-            {
-                m_bAnyHitboxVisible = true;
-                m_bVisCheckComplete = true;
-                return true;
-            }
-        }
-        m_bAnyHitboxVisible = false;
-        m_bVisCheckComplete = true;
-        return false;
-    }
-
-    for (int i = 0; i < hitboxes.m_nNumHitboxes; i++)
-    {
-        vischeck = false;
-        vischeck = hitboxes.VisibilityCheck(i);
-        if (vischeck)
-        {
-            m_bAnyHitboxVisible = true;
-            m_bVisCheckComplete = true;
-            return true;
-        }
-    }
     m_bAnyHitboxVisible = false;
     m_bVisCheckComplete = true;
 
     return false;
 }
-
-std::optional<Vector> CachedEntity::m_vecDormantOrigin()
-{
-    if (!RAW_ENT(this)->IsDormant())
-        return m_vecOrigin();
-    auto vec = soundcache::GetSoundLocation(this->m_IDX);
-    if (vec)
-        return *vec;
-    return std::nullopt;
-}
-
 namespace entity_cache
 {
-CachedEntity array[MAX_ENTITIES]{};
+boost::unordered_flat_map<u_int16_t, CachedEntity> array;
 std::vector<CachedEntity *> valid_ents;
-
+std::vector<CachedEntity *> player_cache;
+u_int16_t previous_max = 0;
+u_int16_t previous_ent = 0;
 void Update()
 {
-    max = g_IEntityList->GetHighestEntityIndex();
+    max                    = g_IEntityList->GetHighestEntityIndex();
+    u_int16_t current_ents = g_IEntityList->NumberOfEntities(false);
     valid_ents.clear(); // Reserving isn't necessary as this doesn't reallocate it
+    player_cache.clear();
+    if (g_Settings.bInvalid)
+        return;
     if (max >= MAX_ENTITIES)
-    {
         max = MAX_ENTITIES - 1;
-    }
-
-    for (int i = 0; i <= max; i++)
+    if (previous_max == max && previous_ent == current_ents)
     {
-        array[i].Update();
-        if (CE_GOOD((&array[i])))
+        for (auto &[key, val] : array)
         {
-            array[i].hitboxes.UpdateBones();
-            valid_ents.push_back(&array[i]);
+            val.Update();
+            if (val.InternalEntity() && !val.InternalEntity()->IsDormant())
+            {
+                valid_ents.emplace_back(&val);
+                if (val.m_Type() == ENTITY_PLAYER)
+                {
+                    GetPlayerInfo(val.m_IDX, val.player_info);
+                    if (val.m_bAlivePlayer()) [[likely]]
+                    {
+                        val.hitboxes.UpdateBones();
+                        player_cache.emplace_back(&val);
+                    }
+                }
+            }
         }
+        previous_max = max;
+        previous_ent = current_ents;
+        return;
+    }
+    else
+    {
+        for (u_int16_t i = 0; i <= max; ++i)
+        {
+            if (!g_IEntityList->GetClientEntity(i) || !g_IEntityList->GetClientEntity(i)->GetClientClass()->m_ClassID)
+                continue;
+            CachedEntity &ent = array.try_emplace(i, CachedEntity{ i }).first->second;
+            ent.Update();
+            if (ent.InternalEntity() && !ent.InternalEntity()->IsDormant())
+            {
+                valid_ents.emplace_back(&ent);
+                if (ent.m_Type() == ENTITY_PLAYER)
+                {
+                    if (!ent.player_info)
+                        ent.player_info = new player_info_s;
+                    GetPlayerInfo(ent.m_IDX, ent.player_info);
+                    if (ent.m_bAlivePlayer()) [[likely]]
+                    {
+                        ent.hitboxes.UpdateBones();
+                        player_cache.emplace_back(&ent);
+                    }
+                }
+            }
+        }
+        previous_max = max;
+        previous_ent = current_ents;
+        return;
     }
 }
 
 void Invalidate()
 {
-    for (auto &ent : array)
-    {
-        // pMuch useless line!
-        // ent.m_pEntity = nullptr;
-        ent.Reset();
-    }
+    array.clear();
 }
-
 void Shutdown()
 {
-    for (auto &ent : array)
-    {
-        ent.Reset();
-        ent.hitboxes.Reset();
-    }
+    array.clear();
+    previous_max = 0;
+    max          = -1;
 }
-
-int max = 0;
+u_int16_t max = 1;
 } // namespace entity_cache

@@ -19,9 +19,9 @@ static settings::Int detections_warning{ "find-cheaters.aimbot.detections", "3" 
 
 ac_data data_table[MAX_PLAYERS];
 int amount[MAX_PLAYERS];
-std::unordered_map<int, Vector> Player_origs{};
+boost::unordered_flat_map<int, Vector> Player_origs{};
 
-std::unordered_map<int, Vector> &player_orgs()
+boost::unordered_flat_map<int, Vector> &player_orgs()
 {
     return Player_origs;
 }
@@ -54,9 +54,9 @@ void Update(CachedEntity *player)
         data.check_timer--;
         if (!data.check_timer)
         {
-            auto &angles      = angles::data(player);
+            auto &angles      = angles::data_[player->m_IDX];
             float deviation   = angles.deviation(2);
-            int widx          = CE_INT(player, netvar.hActiveWeapon) & 0xFFF;
+            int widx          = HandleToIDX(CE_INT(player, netvar.hActiveWeapon));
             CachedEntity *wep = ENTITY(widx);
             if (!CE_GOOD(wep))
                 return;
@@ -76,7 +76,7 @@ void Update(CachedEntity *player)
                 {
 
                     const char *wp_name = "[unknown]";
-                    int widx            = CE_INT(player, netvar.hActiveWeapon) & 0xFFF;
+                    int widx            = HandleToIDX(CE_INT(player, netvar.hActiveWeapon));
                     if (IDX_GOOD(widx))
                     {
                         CachedEntity *weapon = ENTITY(widx);

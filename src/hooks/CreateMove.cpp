@@ -16,6 +16,8 @@
 #include "HookTools.hpp"
 #include "teamroundtimer.hpp"
 
+// Found in C_BasePlayer. It represents "m_pCurrentCommand"
+#define CURR_CUSERCMD_PTR 4452
 #include "HookedMethods.hpp"
 #include "nospread.hpp"
 #include "Warp.hpp"
@@ -62,7 +64,7 @@ void RunEnginePrediction(IClientEntity *ent, CUserCmd *ucmd)
     }
 
     // Set Usercmd for prediction
-    NET_VAR(ent, 4188, CUserCmd *) = ucmd;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = ucmd;
 
     // Set correct CURTIME
     g_GlobalVars->curtime   = g_GlobalVars->interval_per_tick * NET_INT(ent, netvar.nTickBase);
@@ -78,7 +80,7 @@ void RunEnginePrediction(IClientEntity *ent, CUserCmd *ucmd)
     g_IGameMovement->FinishTrackPredictionErrors(reinterpret_cast<CBasePlayer *>(ent));
 
     // Reset User CMD
-    NET_VAR(ent, 4188, CUserCmd *) = nullptr;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = nullptr;
 
     g_GlobalVars->frametime = frameTime;
     g_GlobalVars->curtime   = curTime;
@@ -131,12 +133,50 @@ void PrecalculateCanShoot()
 static int attackticks = 0;
 namespace hooked_methods
 {
+void speedHack(CUserCmd *cmd, bool &ret)
+{
+    float speed, yaw;
+    Vector vsilent, ang;
+    if (cmd->buttons & IN_DUCK && (CE_INT(g_pLocalPlayer->entity, netvar.iFlags) & FL_ONGROUND) && !(cmd->buttons & IN_ATTACK) && !HasCondition<TFCond_Charging>(LOCAL_E))
+    {
+        speed                     = Vector{ cmd->forwardmove, cmd->sidemove, 0.0f }.Length();
+        static float prevspeedang = 0.0f;
+        if (fabs(speed) > 0.0f)
+        {
+
+            if (forward_speedhack)
+            {
+                cmd->forwardmove *= -1.0f;
+                cmd->sidemove *= -1.0f;
+                cmd->viewangles.x = 91;
+            }
+            Vector vecMove(cmd->forwardmove, cmd->sidemove, 0.0f);
+
+            vecMove *= -1;
+            float flLength = vecMove.Length();
+            Vector angMoveReverse{};
+            VectorAngles(vecMove, angMoveReverse);
+            cmd->forwardmove = -flLength;
+            cmd->sidemove    = 0.0f; // Move only backwards, no sidemove
+            float res        = g_pLocalPlayer->v_OrigViewangles.y - angMoveReverse.y;
+            while (res > 180)
+                res -= 360;
+            while (res < -180)
+                res += 360;
+            if (res - prevspeedang > 90.0f)
+                res = (res + prevspeedang) / 2;
+            prevspeedang                     = res;
+            cmd->viewangles.y                = res;
+            cmd->viewangles.z                = 90.0f;
+            g_pLocalPlayer->bUseSilentAngles = true;
+        }
+    }
+}
 DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUserCmd *cmd)
 {
     g_Settings.is_create_move = true;
-    bool time_replaced, ret, speedapplied;
-    float curtime_old, servertime, speed, yaw;
-    Vector vsilent, ang;
+    bool time_replaced, ret;
+    float curtime_old, servertime;
 
     current_user_cmd = cmd;
     EC::run(EC::CreateMoveEarly);
@@ -203,14 +243,7 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
 
     time_replaced = false;
     curtime_old   = g_GlobalVars->curtime;
-
-    if (*fuckmode)
-    {
-        static int prevbuttons = 0;
-        current_user_cmd->buttons |= prevbuttons;
-        prevbuttons |= current_user_cmd->buttons;
-    }
-
+    
     if (!g_Settings.bInvalid && CE_GOOD(g_pLocalPlayer->entity))
     {
         servertime            = (float) CE_INT(g_pLocalPlayer->entity, netvar.nTickBase) * g_GlobalVars->interval_per_tick;
@@ -218,10 +251,7 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
         time_replaced         = true;
     }
     if (g_Settings.bInvalid)
-    {
         entity_cache::Invalidate();
-    }
-
     //	PROF_BEGIN();
     // Do not update if in warp, since the entities will stay identical either way
     if (!hacks::tf2::warp::in_warp)
@@ -316,11 +346,13 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
                 projectile_logging::Update();
         }
     }
+    else
+        return false;
     {
         PROF_SECTION(CM_WRAPPER);
         EC::run(EC::CreateMove_NoEnginePred);
 
-        if (engine_pred)
+        if (engine_pred && g_pLocalPlayer->weapon_mode == weapon_projectile)
         {
             engine_prediction::RunEnginePrediction(RAW_ENT(LOCAL_E), current_user_cmd);
             g_pLocalPlayer->UpdateEye();
@@ -354,46 +386,15 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
 #endif
     if (CE_GOOD(g_pLocalPlayer->entity))
     {
-        speedapplied = false;
-        if (roll_speedhack && cmd->buttons & IN_DUCK && (CE_INT(g_pLocalPlayer->entity, netvar.iFlags) & FL_ONGROUND) && !(cmd->buttons & IN_ATTACK) && !HasCondition<TFCond_Charging>(LOCAL_E))
+        if (roll_speedhack)
+            speedHack(cmd, ret);
+        else
         {
-            speed                     = Vector{ cmd->forwardmove, cmd->sidemove, 0.0f }.Length();
-            static float prevspeedang = 0.0f;
-            if (fabs(speed) > 0.0f)
+            if (g_pLocalPlayer->bUseSilentAngles)
             {
 
-                if (forward_speedhack)
-                {
-                    cmd->forwardmove *= -1.0f;
-                    cmd->sidemove *= -1.0f;
-                    cmd->viewangles.x = 91;
-                }
-                Vector vecMove(cmd->forwardmove, cmd->sidemove, 0.0f);
-
-                vecMove *= -1;
-                float flLength = vecMove.Length();
-                Vector angMoveReverse{};
-                VectorAngles(vecMove, angMoveReverse);
-                cmd->forwardmove = -flLength;
-                cmd->sidemove    = 0.0f; // Move only backwards, no sidemove
-                float res        = g_pLocalPlayer->v_OrigViewangles.y - angMoveReverse.y;
-                while (res > 180)
-                    res -= 360;
-                while (res < -180)
-                    res += 360;
-                if (res - prevspeedang > 90.0f)
-                    res = (res + prevspeedang) / 2;
-                prevspeedang                     = res;
-                cmd->viewangles.y                = res;
-                cmd->viewangles.z                = 90.0f;
-                g_pLocalPlayer->bUseSilentAngles = true;
-                speedapplied                     = true;
-            }
-        }
-        if (g_pLocalPlayer->bUseSilentAngles)
-        {
-            if (!speedapplied)
-            {
+                float speed, yaw;
+                Vector ang, vsilent;
                 vsilent.x = cmd->forwardmove;
                 vsilent.y = cmd->sidemove;
                 vsilent.z = cmd->upmove;
@@ -405,9 +406,9 @@ DEFINE_HOOKED_METHOD(CreateMove, bool, void *this_, float input_sample_time, CUs
                 float clamped_pitch = fabsf(fmodf(cmd->viewangles.x, 360.0f));
                 if (clamped_pitch >= 90 && clamped_pitch <= 270)
                     cmd->forwardmove = -cmd->forwardmove;
-            }
 
-            ret = false;
+                ret = false;
+            }
         }
         g_pLocalPlayer->UpdateEnd();
     }

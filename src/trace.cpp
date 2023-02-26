@@ -58,13 +58,13 @@ bool trace::FilterDefault::ShouldHitEntity(IHandleEntity *handle, int mask)
                 if (CE_GOOD(ent) && ent->m_bAlivePlayer())
                 {
                     // Get held weapon
-                    auto weapon_idx = CE_INT(ent, netvar.hActiveWeapon) & 0xFFF;
+                    auto weapon_idx = HandleToIDX(CE_INT(ent, netvar.hActiveWeapon));
                     // Check if weapon is valid
                     if (IDX_GOOD(weapon_idx))
                     {
                         auto weapon = ENTITY(weapon_idx);
                         // If holding sniper rifle
-                        if (weapon->m_iClassID() == CL_CLASS(CTFSniperRifle) || weapon->m_iClassID() == CL_CLASS(CTFSniperRifleDecap))
+                        if (!weapon || weapon->m_iClassID() == CL_CLASS(CTFSniperRifle) || weapon->m_iClassID() == CL_CLASS(CTFSniperRifleDecap))
                             return false;
                     }
                 }

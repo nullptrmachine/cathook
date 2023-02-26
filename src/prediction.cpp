@@ -8,7 +8,8 @@
 #include "navparser.hpp"
 #include <settings/Bool.hpp>
 #include <boost/circular_buffer.hpp>
-
+// Found in C_BasePlayer. It represents "m_pCurrentCommand"
+#define CURR_CUSERCMD_PTR 4452
 namespace hacks::shared::aimbot
 {
 extern settings::Boolean engine_projpred;
@@ -316,9 +317,9 @@ void Prediction_PaintTraverse()
                 return;
         }
 
-        for (int i = 1; i < g_GlobalVars->maxClients; i++)
+        for (auto const &ent : entity_cache::player_cache)
         {
-            auto ent = ENTITY(i);
+            
             if (CE_BAD(ent) || !ent->m_bAlivePlayer())
                 continue;
 
@@ -458,9 +459,9 @@ Vector EnginePrediction(CachedEntity *entity, float time, Vector *vecVelocity)
     // static Vector zerov{ 0, 0, 0 };
     // CE_VECTOR(entity, netvar.m_angEyeAngles) = zerov;
 
-    CUserCmd *original_cmd = NET_VAR(ent, 4188, CUserCmd *);
+    CUserCmd *original_cmd = NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *);
 
-    NET_VAR(ent, 4188, CUserCmd *) = &fakecmd;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = &fakecmd;
 
     g_GlobalVars->curtime   = g_GlobalVars->interval_per_tick * NET_INT(ent, netvar.nTickBase);
     g_GlobalVars->frametime = time;
@@ -486,7 +487,7 @@ Vector EnginePrediction(CachedEntity *entity, float time, Vector *vecVelocity)
     oFinishMove(g_IPrediction, ent, &fakecmd, pMoveData.get());
     g_IGameMovement->FinishTrackPredictionErrors(reinterpret_cast<CBasePlayer *>(ent));
 
-    NET_VAR(ent, 4188, CUserCmd *) = original_cmd;
+    NET_VAR(ent, CURR_CUSERCMD_PTR, CUserCmd *) = original_cmd;
 
     g_GlobalVars->frametime = frameTime;
     g_GlobalVars->curtime   = curTime;
@@ -528,7 +529,6 @@ std::pair<Vector, Vector> ProjectilePrediction_Engine(CachedEntity *ent, int hb,
     Vector current_velocity = velocity;
     int maxsteps            = (int) debug_pp_steps;
     float steplength        = g_GlobalVars->interval_per_tick;
-    bool has_run_before     = false;
     for (int steps = 0; steps < maxsteps; steps++, currenttime += steplength)
     {
         ent->m_vecOrigin()                                 = current;
@@ -732,10 +732,10 @@ static InitRoutine init(
                 // Don't run if we don't use it
                 if (!hacks::shared::aimbot::engine_projpred && !debug_pp_draw)
                     return;
-                for (int i = 1; i < g_GlobalVars->maxClients; i++)
+                for (auto const &ent: entity_cache::player_cache)
                 {
-                    auto ent     = ENTITY(i);
-                    auto &buffer = previous_positions.at(i - 1);
+                    
+                    auto &buffer = previous_positions.at(ent->m_IDX - 1);
 
                     if (CE_BAD(LOCAL_E) || CE_BAD(ent) || !ent->m_bAlivePlayer())
                     {

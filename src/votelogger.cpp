@@ -38,11 +38,10 @@ static void vote_rage_back()
     if (!g_IEngine->IsInGame() || !attempt_vote_time.test_and_set(1000))
         return;
 
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent : entity_cache::player_cache)
     {
-        auto ent = ENTITY(i);
         // TO DO: m_bEnemy check only when you can't vote off players from the opposite team
-        if (CE_BAD(ent) || ent == LOCAL_E || ent->m_Type() != ENTITY_PLAYER || ent->m_bEnemy())
+        if (ent == LOCAL_E || ent->m_bEnemy())
             continue;
 
         if (!GetPlayerInfo(ent->m_IDX, &info))
@@ -71,9 +70,18 @@ void dispatchUserMessage(bf_read &buffer, int type)
     switch (type)
     {
     case 45:
+    {
         // Vote setup Failed, Refresh vote timer for catbot so it can try again
-        hacks::shared::catbot::timer_votekicks.last -= std::chrono::seconds(4);
+        int reason   = buffer.ReadByte();
+        int cooldown = buffer.ReadShort();
+        int delay    = 4;
+
+        if (reason == 2) // VOTE_FAILED_RATE_EXCEEDED
+            delay = cooldown;
+
+        hacks::shared::catbot::timer_votekicks.last -= std::chrono::seconds(delay);
         break;
+    }
     case 46:
     {
         // TODO: Add always vote no/vote no on friends. Cvar is "vote option2"

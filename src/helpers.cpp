@@ -651,15 +651,19 @@ powerup_type GetPowerupOnPlayer(CachedEntity *player)
         return powerup_type::supernova;
     return powerup_type::not_powerup;
 }
-bool didProjectileHit(Vector start_point, Vector end_point, CachedEntity *entity, float projectile_size)
+bool didProjectileHit(Vector start_point, Vector end_point, CachedEntity *entity, float projectile_size, bool grav_comp, trace_t *tracer)
 {
 
     trace::filter_default.SetSelf(RAW_ENT(g_pLocalPlayer->entity));
     Ray_t ray;
-    trace_t trace_obj;
+    trace_t *trace_obj;
+    if (tracer)
+        trace_obj = tracer;
+    else
+        trace_obj = new trace_t;
     ray.Init(start_point, end_point, Vector(0, -projectile_size, -projectile_size), Vector(0, projectile_size, projectile_size));
-    g_ITrace->TraceRay(ray, MASK_SHOT_HULL, &trace::filter_default, &trace_obj);
-    return (((IClientEntity *) trace_obj.m_pEnt) == RAW_ENT(entity) || !trace_obj.DidHit());
+    g_ITrace->TraceRay(ray, MASK_SHOT_HULL, &trace::filter_default, trace_obj);
+    return (((IClientEntity *) trace_obj->m_pEnt) == RAW_ENT(entity) || (grav_comp ? !trace_obj->DidHit() : false));
 }
 
 // A function to find a weapon by WeaponID
@@ -712,9 +716,9 @@ CachedEntity *getClosestEntity(Vector vec)
 {
     float distance         = FLT_MAX;
     CachedEntity *best_ent = nullptr;
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent : entity_cache::player_cache)
     {
-        CachedEntity *ent = ENTITY(i);
+
         if (CE_VALID(ent) && ent->m_vecDormantOrigin() && ent->m_bAlivePlayer() && ent->m_bEnemy() && vec.DistTo(ent->m_vecOrigin()) < distance)
         {
             distance = vec.DistTo(*ent->m_vecDormantOrigin());
@@ -728,9 +732,9 @@ CachedEntity *getClosestNonlocalEntity(Vector vec)
 {
     float distance         = FLT_MAX;
     CachedEntity *best_ent = nullptr;
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent : entity_cache::player_cache)
     {
-        CachedEntity *ent = ENTITY(i);
+
         if (CE_VALID(ent) && ent->m_IDX != g_pLocalPlayer->entity_idx && ent->m_vecDormantOrigin() && ent->m_bAlivePlayer() && ent->m_bEnemy() && vec.DistTo(ent->m_vecOrigin()) < distance)
         {
             distance = vec.DistTo(*ent->m_vecDormantOrigin());
@@ -880,19 +884,6 @@ bool isRapidFire(IClientEntity *wep)
     return ret || wep->GetClientClass()->m_ClassID == CL_CLASS(CTFMinigun);
 }
 
-// Get forward vector
-void AngleVectors2(const QAngle &angles, Vector *forward)
-{
-    float sp, sy, cp, cy;
-
-    SinCos(DEG2RAD(angles[YAW]), &sy, &cy);
-    SinCos(DEG2RAD(angles[PITCH]), &sp, &cp);
-
-    forward->x = cp * cy;
-    forward->y = cp * sy;
-    forward->z = -sp;
-}
-
 char GetUpperChar(ButtonCode_t button)
 {
     switch (button)
@@ -1024,8 +1015,7 @@ bool IsEntityVisible(CachedEntity *entity, int hb)
         return entity->hitboxes.VisibilityCheck(hb);
 }
 
-std::mutex trace_lock;
-bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_offset, unsigned int mask, trace_t *trace)
+bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_offset, unsigned int mask, trace_t *trace, bool hit)
 {
     trace_t trace_object;
 
@@ -1047,7 +1037,7 @@ bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_
             g_ITrace->TraceRay(ray, mask, &trace::filter_default, trace);
     }
 
-    return (((IClientEntity *) trace->m_pEnt) == RAW_ENT(entity) || !trace->DidHit());
+    return (((IClientEntity *) trace->m_pEnt) == RAW_ENT(entity) || (hit ? false : !trace->DidHit()));
 }
 
 // Get all the corners of a box. Taken from sauce engine.
@@ -1137,11 +1127,6 @@ bool IsBuildingVisible(CachedEntity *ent)
     return IsEntityVectorVisible(ent, GetBuildingPosition(ent));
 }
 
-int HandleToIDX(int handle)
-{
-    return handle & 0xFFF;
-}
-
 void fClampAngle(Vector &qaAng)
 {
     while (qaAng[0] > 89)
@@ -1180,26 +1165,57 @@ CachedEntity *weapon_get(CachedEntity *entity)
     if (CE_BAD(entity))
         return 0;
     handle = CE_INT(entity, netvar.hActiveWeapon);
-    eid    = handle & 0xFFF;
+    eid    = HandleToIDX(handle);
     if (IDX_BAD(eid))
         return 0;
     return ENTITY(eid);
 }
+float ProjGravMult(int class_id, float x_speed)
+{
+    switch (class_id)
+    {
+    case CL_CLASS(CTFGrenadePipebombProjectile):
+    case CL_CLASS(CTFProjectile_Cleaver):
+    case CL_CLASS(CTFProjectile_Jar):
+    case CL_CLASS(CTFProjectile_JarMilk):
+        return 1.0f;
+    case CL_CLASS(CTFProjectile_Arrow):
+        if (2599.0f <= x_speed)
+            return 0.1f;
+        else
+            return 0.5f;
 
+    case CL_CLASS(CTFProjectile_Flare):
+        return 0.25f;
+    case CL_CLASS(CTFProjectile_HealingBolt):
+        return 0.2f;
+    case CL_CLASS(CTFProjectile_Rocket):
+    case CL_CLASS(CTFProjectile_SentryRocket):
+    case CL_CLASS(CTFProjectile_EnergyBall):
+    case CL_CLASS(CTFProjectile_EnergyRing):
+    case CL_CLASS(CTFProjectile_GrapplingHook):
+    case CL_CLASS(CTFProjectile_BallOfFire):
+        return 0.0f;
+    default:
+        return 0.3f;
+    }
+}
 weaponmode GetWeaponMode(CachedEntity *ent)
 {
-    int weapon_handle, slot;
+    int weapon_handle, weapon_idx, slot;
     CachedEntity *weapon;
 
     if (CE_BAD(ent) || CE_BAD(weapon_get(ent)))
         return weapon_invalid;
     weapon_handle = CE_INT(ent, netvar.hActiveWeapon);
-    if (IDX_BAD((weapon_handle & 0xFFF)))
+    weapon_idx    = HandleToIDX(weapon_handle);
+
+    if (IDX_BAD(weapon_idx))
     {
-        // logging::Info("IDX_BAD: %i", weapon_handle & 0xFFF);
+        // logging::Info("IDX_BAD: %i", weapon_idx);
         return weaponmode::weapon_invalid;
     }
-    weapon = (ENTITY(weapon_handle & 0xFFF));
+    weapon = (ENTITY(weapon_idx));
     if (CE_BAD(weapon))
         return weaponmode::weapon_invalid;
     int classid = weapon->m_iClassID();
@@ -1678,16 +1694,6 @@ float ATTRIB_HOOK_FLOAT(float base_value, const char *search_string, IClientEnti
     return AttribHookFloat_fn(base_value, search_string, ent, buffer, is_global_const_string);
 }
 
-QAngle VectorToQAngle(Vector in)
-{
-    return *(QAngle *) &in;
-}
-
-Vector QAngleToVector(QAngle in)
-{
-    return *(Vector *) &in;
-}
-
 void AimAt(Vector origin, Vector target, CUserCmd *cmd, bool compensate_punch)
 {
     cmd->viewangles = GetAimAtAngles(origin, target, compensate_punch ? LOCAL_E : nullptr);
@@ -1801,10 +1807,9 @@ CatCommand print_classnames("debug_print_classnames", "Lists classnames currentl
                             []()
                             {
                                 // Create a tmp ent for the loop
-                                CachedEntity *ent;
 
                                 // Go through all the entities
-                                for (auto &ent : entity_cache::valid_ents)
+                                for (auto const &ent : entity_cache::valid_ents)
                                 {
 
                                     // Print in console, the class name of the ent
@@ -1875,7 +1880,7 @@ Vector getShootPos(Vector angle)
 
     // Huntsman
     case CL_CLASS(CTFCompoundBow):
-        vecOffset = Vector(23.5f, -8.0f, -3.0f);
+        vecOffset = Vector(23.5f, -4.0f, -3.0f);
         break;
 
     default:
@@ -1971,32 +1976,12 @@ int SharedRandomInt(unsigned iseed, const char *sharedname, int iMinVal, int iMa
     return g_pUniformStream->RandomInt(iMinVal, iMaxVal);
 }
 
-bool GetPlayerInfo(int idx, player_info_s *info)
-{
-    bool res = g_IEngine->GetPlayerInfo(idx, info);
-    if (!res)
-        return res;
-
-    // First try parsing GUID, should always work unless a server is being malicious
-    try
-    {
-        std::string guid = info->guid;
-        guid             = guid.substr(5, guid.length() - 6);
-        info->friendsID  = std::stoul(guid.c_str());
-    }
-    catch (...)
-    {
-        // Fix friends ID with player resource
-        info->friendsID = g_pPlayerResource->GetAccountID(idx);
-    }
-    return res;
-}
-
 int GetPlayerForUserID(int userID)
 {
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent : entity_cache::player_cache)
     {
         player_info_s player_info;
+        int i = ent->m_IDX;
         if (!GetPlayerInfo(i, &player_info))
             continue;
         // Found player

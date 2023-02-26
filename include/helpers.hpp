@@ -21,7 +21,7 @@ void SetCVarInterface(ICvar *iface);
 
 constexpr float PI    = 3.14159265358979323846f;
 constexpr float RADPI = 57.295779513082f;
-//#define DEG2RAD(x) (float)(x) * (float)(PI / 180.0f)
+// #define DEG2RAD(x) (float)(x) * (float)(PI / 180.0f)
 
 #include <enums.hpp>
 #include <conditions.hpp>
@@ -94,12 +94,36 @@ weaponmode GetWeaponMode(CachedEntity *ent);
 
 void FixMovement(CUserCmd &cmd, Vector &viewangles);
 void VectorAngles(Vector &forward, Vector &angles);
-void AngleVectors2(const QAngle &angles, Vector *forward);
+// Get forward vector
+inline void AngleVectors2(const QAngle &angles, Vector *forward)
+{
+    float sp, sy, cp, cy;
+
+    SinCos(DEG2RAD(angles[YAW]), &sy, &cy);
+    SinCos(DEG2RAD(angles[PITCH]), &sp, &cp);
+
+    forward->x = cp * cy;
+    forward->y = cp * sy;
+    forward->z = -sp;
+}
 void AngleVectors3(const QAngle &angles, Vector *forward, Vector *right, Vector *up);
 bool isRapidFire(IClientEntity *wep);
+void fClampAngle(Vector &qaAng);
+
+inline Vector GetAimAtAngles(Vector origin, Vector target, CachedEntity *punch_correct = nullptr)
+{
+    Vector angles, tr;
+    tr = (target - origin);
+    VectorAngles(tr, angles);
+    // Apply punchangle correction
+    if (punch_correct)
+        angles -= CE_VECTOR(punch_correct, netvar.vecPunchAngle);
+    fClampAngle(angles);
+    return angles;
+}
 extern std::mutex trace_lock;
 bool IsEntityVisible(CachedEntity *entity, int hb);
-bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_offset = false, unsigned int mask = MASK_SHOT_HULL, trace_t *trace = nullptr);
+bool IsEntityVectorVisible(CachedEntity *entity, Vector endpos, bool use_weapon_offset = false, unsigned int mask = MASK_SHOT_HULL, trace_t *trace = nullptr, bool hit = false);
 bool VisCheckEntFromEnt(CachedEntity *startEnt, CachedEntity *endEnt);
 bool VisCheckEntFromEntVector(Vector startVector, CachedEntity *startEnt, CachedEntity *endEnt);
 Vector VischeckCorner(CachedEntity *player, CachedEntity *target, float maxdist, bool checkWalkable);
@@ -112,13 +136,14 @@ bool LineIntersectsBox(Vector &bmin, Vector &bmax, Vector &lmin, Vector &lmax);
 void GenerateBoxVertices(const Vector &vOrigin, const QAngle &angles, const Vector &vMins, const Vector &vMaxs, Vector pVerts[8]);
 
 float DistToSqr(CachedEntity *entity);
-void fClampAngle(Vector &qaAng);
+
 // const char* MakeInfoString(IClientEntity* player);
 bool GetProjectileData(CachedEntity *weapon, float &speed, float &gravity, float &start_velocity);
 bool IsVectorVisible(Vector a, Vector b, bool enviroment_only = false, CachedEntity *self = LOCAL_E, unsigned int mask = MASK_SHOT_HULL);
 // A Special function for navparser to check if a Vector is visible.
 bool IsVectorVisibleNavigation(Vector a, Vector b, unsigned int mask = MASK_SHOT_HULL);
-bool didProjectileHit(Vector start_point, Vector end_point, CachedEntity *entity, float projectile_size);
+float ProjGravMult(int class_id, float x_speed);
+bool didProjectileHit(Vector start_point, Vector end_point, CachedEntity *entity, float projectile_size, bool grav_comp, trace_t* tracer = nullptr);
 Vector getShootPos(Vector angle);
 Vector GetForwardVector(Vector origin, Vector viewangles, float distance, CachedEntity *punch_entity = nullptr);
 Vector GetForwardVector(float distance, CachedEntity *punch_entity = nullptr);
@@ -136,7 +161,7 @@ bool AmbassadorCanHeadshot();
 void ValidateUserCmd(CUserCmd *cmd, int sequence_nr);
 
 // Convert a TF2 handle into an IDX -> ENTITY(IDX)
-int HandleToIDX(int handle);
+#define HandleToIDX(handle) (handle & 0xFFFF)
 
 inline const char *teamname(int team)
 {
@@ -161,25 +186,20 @@ void ChangeName(std::string name);
 
 void WhatIAmLookingAt(int *result_eindex, Vector *result_pos);
 
-inline Vector GetAimAtAngles(Vector origin, Vector target, CachedEntity *punch_correct = nullptr)
-{
-    Vector angles, tr;
-    tr = (target - origin);
-    VectorAngles(tr, angles);
-    // Apply punchangle correction
-    if (punch_correct)
-        angles -= CE_VECTOR(punch_correct, netvar.vecPunchAngle);
-    fClampAngle(angles);
-    return angles;
-}
-
 void AimAt(Vector origin, Vector target, CUserCmd *cmd, bool compensate_punch = true);
 void FastStop();
 void AimAtHitbox(CachedEntity *ent, int hitbox, CUserCmd *cmd, bool compensate_punch = true);
 bool IsProjectileCrit(CachedEntity *ent);
 
-QAngle VectorToQAngle(Vector in);
-Vector QAngleToVector(QAngle in);
+inline QAngle VectorToQAngle(Vector in)
+{
+    return *(QAngle *) &in;
+}
+
+inline Vector QAngleToVector(QAngle in)
+{
+    return *(Vector *) &in;
+}
 
 bool CanHeadshot();
 bool CanShoot();
@@ -229,6 +249,27 @@ template <typename... Args> std::string format(const Args &...args)
 extern const std::string classes[10];
 extern const char *powerups[POWERUP_COUNT];
 bool isTruce();
-bool GetPlayerInfo(int idx, player_info_s *info);
+
 void setTruce(bool status);
 int GetPlayerForUserID(int userID);
+
+inline bool GetPlayerInfo(int idx, player_info_s *info)
+{
+    bool res = g_IEngine->GetPlayerInfo(idx, info);
+    if (!res)
+        return res;
+
+    // First try parsing GUID, should always work unless a server is being malicious
+    try
+    {
+        std::string guid = info->guid;
+        guid             = guid.substr(5, guid.length() - 6);
+        info->friendsID  = std::stoul(guid.c_str());
+    }
+    catch (...)
+    {
+        // Fix friends ID with player resource
+        info->friendsID = g_pPlayerResource->GetAccountID(idx);
+    }
+    return res;
+}

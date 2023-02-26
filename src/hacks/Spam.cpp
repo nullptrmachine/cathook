@@ -182,8 +182,9 @@ int QueryPlayer(Query query)
     }
     std::vector<int> candidates{};
     int index_result = 0;
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent: entity_cache::player_cache)
     {
+        int i = ent->m_IDX;
         if (PlayerPassesQuery(query, i))
         {
             candidates.push_back(i);
@@ -241,7 +242,7 @@ static std::vector<std::string> teamspam_text = { "CAT", "HOOK" };
 // Current spam index
 static size_t current_teamspam_idx = 0;
 
-void createMove()
+static void CreateMove()
 {
     IF_GAME(IsTF2())
     {
@@ -418,7 +419,7 @@ void teamspam_reload_command()
 }
 static InitRoutine EC([]() {
     teamname_file.installChangeCallback([](settings::VariableBase<std::string> &, std::string after) { teamspam_reload(after); });
-    EC::Register(EC::CreateMove, createMove, "spam", EC::average);
+    EC::Register(EC::CreateMove, CreateMove, "spam", EC::average);
     init();
 });
 

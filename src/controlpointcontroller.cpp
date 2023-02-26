@@ -28,7 +28,7 @@ void UpdateObjectiveResource()
     if (CE_GOOD(objective_resource) && objective_resource->m_iClassID() == CL_CLASS(CTFObjectiveResource))
         return;
     // Find ObjectiveResource and gamerules
-    for (auto &ent : entity_cache::valid_ents)
+    for (auto const &ent : entity_cache::valid_ents)
     {
         if (ent->m_iClassID() != CL_CLASS(CTFObjectiveResource))
             continue;
@@ -79,6 +79,7 @@ int GetFarthestOwnedControlPoint(int team)
         // If we've hit a point we don't own, we're done
         if (GET_OWNING_TEAM(iPoint) != team)
             break;
+
 
         iFarthestPoint = iPoint;
     }

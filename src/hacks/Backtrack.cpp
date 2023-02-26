@@ -195,11 +195,10 @@ void MoveToTick(BacktrackData data)
     // Mark all the hitboxes as valid so we don't recalc them and use the old data
     // We already have
     target->hitboxes.m_CacheInternal.resize(data.hitboxes.size());
-    for (int i = hitbox_t::head; i <= foot_R; i++)
-    {
-        target->hitboxes.m_CacheValidationFlags[i] = true;
+    // Sets bits 1-18 (Or array indicies 0-17 if this was an array)
+    target->hitboxes.m_CacheValidationFlags |= 262143ULL;
+    for (int i = hitbox_t::head; i <= foot_R; ++i)
         target->hitboxes.m_CacheInternal.at(i)     = data.hitboxes.at(i);
-    }
 
     // Sync animation properly
     CE_FLOAT(target, netvar.m_flSimulationTime) = data.simtime;
@@ -256,7 +255,7 @@ void RestoreEntity(int entidx)
     set_data = std::nullopt;
 }
 
-void CreateMoveEarly()
+static void CreateMoveEarly()
 {
     if (hacks::tf2::antianticheat::enabled && *latency > 200.0f)
         latency = 200.0f;
@@ -279,9 +278,9 @@ void CreateMoveEarly()
     if ((int) bt_data.size() != g_IEngine->GetMaxClients())
         bt_data.resize(g_IEngine->GetMaxClients());
 
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent: entity_cache::player_cache)
     {
-        CachedEntity *ent = ENTITY(i);
+        int i = ent->m_IDX;
         int index         = i - 1;
 
         auto &ent_data = bt_data[index];
@@ -306,7 +305,7 @@ void CreateMoveEarly()
         // Copy bones (for chams/glow)
         data.bones = ent->hitboxes.bones;
 
-        for (int i = head; i <= foot_R; i++)
+        for (int i = head; i <= foot_R; ++i)
             data.hitboxes.at(i) = *ent->hitboxes.GetHitbox(i);
 
         ent_data.insert(ent_data.begin(), data);
@@ -328,7 +327,7 @@ void CreateMoveEarly()
     }
 }
 
-void CreateMoveLate()
+static void CreateMoveLate()
 {
     if (!isBacktrackEnabled)
         return;
@@ -343,7 +342,7 @@ void CreateMoveLate()
     if (!set_data && !g_pLocalPlayer->bUseSilentAngles)
     {
         float cursor_distance = FLT_MAX;
-        for (auto &ent_data : bt_data)
+        for (auto const &ent_data : bt_data)
         {
             for (auto &tick_data : ent_data)
             {

@@ -417,7 +417,7 @@ void EffectGlow::DrawEntity(IClientEntity *entity)
     passes = 0;
 
     entity->DrawModel(1);
-    attach = g_IEntityList->GetClientEntity(*(int *) ((uintptr_t) entity + netvar.m_Collision - 24) & 0xFFF);
+    attach = g_IEntityList->GetClientEntity(HandleToIDX(*(int *) ((uintptr_t) entity + netvar.m_Collision - 24)));
     while (attach && passes++ < 32)
     {
         if (attach->ShouldDraw())
@@ -435,7 +435,7 @@ void EffectGlow::DrawEntity(IClientEntity *entity)
                 attach->DrawModel(1);
             }
         }
-        attach = g_IEntityList->GetClientEntity(*(int *) ((uintptr_t) attach + netvar.m_Collision - 20) & 0xFFF);
+        attach = g_IEntityList->GetClientEntity(HandleToIDX(*(int *) ((uintptr_t) attach + netvar.m_Collision - 20)));
     }
 #endif
 }
@@ -458,14 +458,13 @@ void EffectGlow::Render(int x, int y, int w, int h)
     if (!isHackActive() || (clean_screenshots && g_IEngine->IsTakingScreenshot()) || g_Settings.bInvalid || disable_visuals)
         return;
     static ITexture *orig;
-    static IClientEntity *ent;
     static IMaterialVar *blury_bloomamount;
     if (!init)
         Init();
     CMatRenderContextPtr ptr(GET_RENDER_CONTEXT);
     orig = ptr->GetRenderTarget();
     BeginRenderGlow();
-    for (auto &ent_non_raw : entity_cache::valid_ents)
+    for (auto const &ent_non_raw : entity_cache::valid_ents)
     {
         auto ent = RAW_ENT(ent_non_raw);
         if (ent && ShouldRenderGlow(ent))

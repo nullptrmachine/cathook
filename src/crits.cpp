@@ -5,7 +5,7 @@
 #include "netadr.h"
 #include "AntiCheatBypass.hpp"
 
-std::unordered_map<int, int> command_number_mod{};
+boost::unordered_flat_map<int, int> command_number_mod{};
 
 namespace criticals
 {
@@ -278,7 +278,7 @@ bool shouldMeleeCrit()
         }
         else
         {
-            for (auto &ent_data : hacks::tf2::backtrack::bt_data)
+            for (auto const &ent_data : hacks::tf2::backtrack::bt_data)
             {
                 for (auto &tick : ent_data)
                 {
@@ -392,7 +392,7 @@ bool canWeaponCrit(bool draw = false)
 // We cycle between the crit cmds so we want to store where we are currently at
 size_t current_index = 0;
 // Cache Weapons
-std::map<int, std::vector<int>> crit_cmds;
+boost::unordered_flat_map<int, std::vector<int>> crit_cmds;
 
 // We need to store a bunch of data for when we kill someone with a crit
 struct player_status
@@ -653,7 +653,7 @@ bool isExploitingDoubleAttack()
 }
 
 // Damage this round
-void CreateMove()
+static void CreateMove()
 {
     // It should never go down, if it does we need to compensate for it
     if (g_pPlayerResource->GetDamage(g_pLocalPlayer->entity_idx) < round_damage)
@@ -662,13 +662,13 @@ void CreateMove()
     cached_damage = g_pPlayerResource->GetDamage(g_pLocalPlayer->entity_idx) - melee_damage;
 
     // We need to update player states regardless, else we can't sync the observed crit chance
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent: entity_cache::player_cache)
     {
-        CachedEntity *ent = ENTITY(i);
+        
         // no valid check needed, GetHealth only uses m_IDX
         if (g_pPlayerResource->GetHealth(ent))
         {
-            auto &status = player_status_list[i - 1];
+            auto &status = player_status_list[ent->m_IDX - 1];
             // Only sync if not updated recently in player_hurt
             // new health is bigger,
             // or they changed classes. We do the rest in player_hurt

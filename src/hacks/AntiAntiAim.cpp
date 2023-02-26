@@ -11,17 +11,17 @@ namespace hacks::shared::anti_anti_aim
 static settings::Boolean enable{ "anti-anti-aim.enable", "false" };
 static settings::Boolean debug{ "anti-anti-aim.debug.enable", "false" };
 
-std::unordered_map<unsigned, brutedata> resolver_map;
+boost::unordered_flat_map<unsigned, brutedata> resolver_map;
 std::array<CachedEntity *, 32> sniperdot_array;
 
 static inline void modifyAngles()
 {
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &player : entity_cache::player_cache)
     {
-        auto player = ENTITY(i);
-        if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy() || !player->player_info.friendsID)
+
+        if (CE_BAD(player) || !player->m_bAlivePlayer() || !player->m_bEnemy() || !player->player_info->friendsID)
             continue;
-        auto &data  = resolver_map[player->player_info.friendsID];
+        auto &data  = resolver_map[player->player_info->friendsID];
         auto &angle = CE_VECTOR(player, netvar.m_angEyeAngles);
         angle.x     = data.new_angle.x;
         angle.y     = data.new_angle.y;
@@ -142,9 +142,9 @@ static float resolveAnglePitch(float angle, brutedata &brute, CachedEntity *ent)
 void increaseBruteNum(int idx)
 {
     auto ent = ENTITY(idx);
-    if (CE_BAD(ent) || !ent->player_info.friendsID)
+    if (CE_BAD(ent) || !ent->player_info->friendsID)
         return;
-    auto &data = hacks::shared::anti_anti_aim::resolver_map[ent->player_info.friendsID];
+    auto &data = hacks::shared::anti_anti_aim::resolver_map[ent->player_info->friendsID];
     if (data.hits_in_a_row >= 4)
         data.hits_in_a_row = 2;
     else if (data.hits_in_a_row >= 2)
@@ -177,7 +177,7 @@ static void pitchHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
     auto client_ent   = (IClientEntity *) (pStruct);
     CachedEntity *ent = ENTITY(client_ent->entindex());
     if (CE_GOOD(ent))
-        *flPitch_out = resolveAnglePitch(flPitch, resolver_map[ent->player_info.friendsID], ent);
+        *flPitch_out = resolveAnglePitch(flPitch, resolver_map[ent->player_info->friendsID], ent);
 }
 
 static void yawHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
@@ -194,7 +194,7 @@ static void yawHook(const CRecvProxyData *pData, void *pStruct, void *pOut)
     auto client_ent   = (IClientEntity *) (pStruct);
     CachedEntity *ent = ENTITY(client_ent->entindex());
     if (CE_GOOD(ent))
-        *flYaw_out = resolveAngleYaw(flYaw, resolver_map[ent->player_info.friendsID]);
+        *flYaw_out = resolveAngleYaw(flYaw, resolver_map[ent->player_info->friendsID]);
 }
 
 // *_ptr points to what we need to modify while *_ProxyFn holds the old value
@@ -212,7 +212,7 @@ static void hook()
         // "DT_TFPlayer", "tfnonlocaldata"
         if (!strcmp(pszName, "DT_TFPlayer"))
         {
-            for (int i = 0; i < pClass->m_pRecvTable->m_nProps; i++)
+            for (int i = 0; i < pClass->m_pRecvTable->m_nProps; ++i)
             {
                 RecvPropRedef *pProp1 = (RecvPropRedef *) &(pClass->m_pRecvTable->m_pProps[i]);
                 if (!pProp1)

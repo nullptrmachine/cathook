@@ -22,8 +22,8 @@ struct LevelInfo
 static std::array<LevelInfo, 10> mafia_levels{ LevelInfo(0, 9, "Crook"), LevelInfo(50, 50, "Crook"), LevelInfo(10, 10, "Bad Cop"), LevelInfo(0, 10, "Hoody"), LevelInfo(0, 5, "Gangster"), LevelInfo(1, 1, "Poor Man"), LevelInfo(10, 10, "Rich Man"), LevelInfo(10, 34, "Hitman"), LevelInfo(15, 99, "Boss"), LevelInfo(60, 100, "God Father") };
 
 #if ENABLE_VISUALS
-std::unordered_map<unsigned, std::pair<std::string, int>> choosen_entry{};
-std::unordered_map<unsigned, int> previous_entry_amount{};
+boost::unordered_flat_map<unsigned, std::pair<std::string, int>> choosen_entry{};
+boost::unordered_flat_map<unsigned, int> previous_entry_amount{};
 std::string random_mafia_entry(int level, unsigned steamid)
 {
     std::vector<std::string> store;
@@ -52,12 +52,12 @@ void Paint()
 {
     if (!*draw_kda && !*mafia_city)
         return;
-    for (int i = 0; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent: entity_cache::player_cache)
     {
-        CachedEntity *ent = ENTITY(i);
+        int i = ent->m_IDX;
         if (CE_BAD(ent))
             continue;
-        if (ent->m_Type() != ENTITY_PLAYER || !ent->player_info.friendsID)
+        if (ent->m_Type() != ENTITY_PLAYER || !ent->player_info->friendsID)
             continue;
         // Update alive state
         if (g_pPlayerResource->isAlive(i))
@@ -121,7 +121,7 @@ void Paint()
             if (i == g_IEngine->GetLocalPlayer())
                 color.b += 0.5f;
             // tint CAT status people's names too
-            if (playerlist::AccessData(ent->player_info.friendsID).state == playerlist::k_EState::CAT)
+            if (playerlist::AccessData(ent->player_info->friendsID).state == playerlist::k_EState::CAT)
                 color.g = 0.8f;
 
             // Calculate Player Level
@@ -132,9 +132,9 @@ void Paint()
             level            = max(level, 1);
 
             // String to draw, {Level} Cat for cathook users, else gotten from std::vector at random.
-            if (choosen_entry[ent->player_info.friendsID].first == "" || choosen_entry[ent->player_info.friendsID].second != level)
-                choosen_entry[ent->player_info.friendsID] = { random_mafia_entry(level, ent->player_info.friendsID), level };
-            std::string to_display = (playerlist::AccessData(ent->player_info.friendsID).state == playerlist::k_EState::CAT ? format("Lv.", level, " Cat") : format("Lv.", level, " ", choosen_entry[ent->player_info.friendsID].first));
+            if (choosen_entry[ent->player_info->friendsID].first == "" || choosen_entry[ent->player_info->friendsID].second != level)
+                choosen_entry[ent->player_info->friendsID] = { random_mafia_entry(level, ent->player_info->friendsID), level };
+            std::string to_display = (playerlist::AccessData(ent->player_info->friendsID).state == playerlist::k_EState::CAT ? format("Lv.", level, " Cat") : format("Lv.", level, " ", choosen_entry[ent->player_info->friendsID].first));
 
             // Clamp to prevent oob
             color.g -= (float) (g_GlobalVars->curtime - death_timer[i]) / (3.0f);

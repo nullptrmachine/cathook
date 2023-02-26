@@ -62,7 +62,7 @@ struct AchivementItem
 };
 
 // A map that allows us to map item ids to achievement names and achievement ids
-static std::unordered_map<int /*item_id*/, AchivementItem> ach_items;
+static boost::unordered_flat_map<int /*item_id*/, AchivementItem> ach_items;
 static std::array<std::vector<std::string>, 3> craft_groups;
 
 bool checkAchMgr()
@@ -81,7 +81,7 @@ void Lock()
     if (!checkAchMgr())
         return;
     g_ISteamUserStats->RequestCurrentStats();
-    for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); i++)
+    for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); ++i)
     {
         g_ISteamUserStats->ClearAchievement(g_IAchievementMgr->GetAchievementByIndex(i)->GetName());
     }
@@ -93,7 +93,7 @@ void Unlock()
 {
     if (!checkAchMgr())
         return;
-    for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); i++)
+    for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); ++i)
     {
         g_IAchievementMgr->AwardAchievement(g_IAchievementMgr->GetAchievementByIndex(i)->GetAchievementID());
     }
@@ -332,7 +332,7 @@ void getAndEquipWeapon(std::string str, int clazz, int slot)
 }
 
 static Timer t{};
-void CreateMove()
+static void CreateMove()
 {
     if (!enable || CE_BAD(LOCAL_E) || !t.test_and_set(*interval))
         return;
@@ -375,7 +375,7 @@ CatCommand dump_achievement("achievement_dump", "Dump achievements to file (deve
                                 std::ofstream out("/tmp/cathook_achievements.txt", std::ios::out);
                                 if (out.bad())
                                     return;
-                                for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); i++)
+                                for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); ++i)
                                 {
                                     out << '[' << i << "] " << g_IAchievementMgr->GetAchievementByIndex(i)->GetName() << ' ' << g_IAchievementMgr->GetAchievementByIndex(i)->GetAchievementID() << "\n";
                                 }
@@ -422,7 +422,7 @@ CatCommand lock_single("achievement_lock_single", "Locks single achievement by I
 
                            int index = -1;
                            if (ach)
-                               for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); i++)
+                               for (int i = 0; i < g_IAchievementMgr->GetAchievementCount(); ++i)
                                {
                                    auto ach2 = g_IAchievementMgr->GetAchievementByIndex(i);
                                    if (ach2->GetAchievementID() == id)

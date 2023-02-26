@@ -13,48 +13,13 @@
 namespace hitbox_cache
 {
 
-EntityHitboxCache::EntityHitboxCache() : parent_ref(&entity_cache::Get(((unsigned) this - (unsigned) &hitbox_cache::array) / sizeof(EntityHitboxCache)))
-{
-    Reset();
-}
-
-int EntityHitboxCache::GetNumHitboxes()
-{
-    if (!m_bInit)
-        Init();
-    if (!m_bSuccess)
-        return 0;
-    return m_nNumHitboxes;
-}
-
-EntityHitboxCache::~EntityHitboxCache()
-{
-}
-
-void EntityHitboxCache::InvalidateCache()
-{
-    bones_setup = false;
-    for (int i = 0; i < CACHE_MAX_HITBOXES; i++)
-    {
-        m_CacheValidationFlags[i]    = false;
-        m_VisCheckValidationFlags[i] = false;
-    }
-    m_bInit    = false;
-    m_bSuccess = false;
-}
-
-void EntityHitboxCache::Update()
-{
-    InvalidateCache();
-}
-
 void EntityHitboxCache::Init()
 {
     model_t *model;
     studiohdr_t *shdr;
     mstudiohitboxset_t *set;
-
-    m_bInit = true;
+    m_bInit    = true;
+    parent_ref = &(entity_cache::array[hit_idx]);
     if (CE_BAD(parent_ref))
         return;
     model = (model_t *) RAW_ENT(parent_ref)->GetModel();
@@ -91,34 +56,36 @@ bool EntityHitboxCache::VisibilityCheck(int id)
         return false;
     if (!m_bSuccess)
         return false;
-    if (m_VisCheckValidationFlags[id])
-        return m_VisCheck[id];
+    if ((m_VisCheckValidationFlags >> id) & 1)
+        return (m_VisCheck >> id) & 1;
     // TODO corners
     hitbox = GetHitbox(id);
     if (!hitbox)
         return false;
-    m_VisCheck[id]                = (IsEntityVectorVisible(parent_ref, hitbox->center, true));
-    m_VisCheckValidationFlags[id] = true;
-    return m_VisCheck[id];
+    bool validation = (IsEntityVectorVisible(parent_ref, hitbox->center, true));
+    // Bitmask works sort of like an index in our case. 1 would be the first bit, and we are shifting this by id to get our index
+    uint_fast64_t mask = 1ULL << id;
+    // No branch conditional set https://graphics.stanford.edu/~seander/bithacks.html#ConditionalSetOrClearBitsWithoutBranching
+    m_VisCheck = (m_VisCheck & ~mask) | (-validation & mask);
+    m_VisCheckValidationFlags |= 1ULL << id;
+    return (m_VisCheck >> id) & 1;
 }
 
 static settings::Int setupbones_time{ "source.setupbones-time", "2" };
 
-static std::mutex setupbones_mutex;
-
 void EntityHitboxCache::UpdateBones()
 {
     // Do not run for bad ents/non player ents
-    if (CE_BAD(parent_ref) || parent_ref->m_Type() != ENTITY_PLAYER)
-        return;
+    if (!m_bInit)
+        Init();
     auto bone_ptr = GetBones();
     if (!bone_ptr || bones.empty())
         return;
 
     // Thanks to the epic doghook developers (mainly F1ssion and MrSteyk)
     // I do not have to find all of these signatures and dig through ida
-    struct BoneCache;
 
+    struct BoneCache;
     typedef BoneCache *(*GetBoneCache_t)(unsigned);
     typedef void (*BoneCacheUpdateBones_t)(BoneCache *, matrix3x4_t * bones, unsigned, float time);
     static auto hitbox_bone_cache_handle_offset = *(unsigned *) (gSignatures.GetClientSignature("8B 86 ? ? ? ? 89 04 24 E8 ? ? ? ? 85 C0 89 C3 74 48") + 2);
@@ -185,26 +152,9 @@ matrix3x4_t *EntityHitboxCache::GetBones(int numbones)
     return bones.data();
 }
 
-void EntityHitboxCache::Reset()
-{
-    memset(m_VisCheck, 0, sizeof(bool) * CACHE_MAX_HITBOXES);
-    memset(m_VisCheckValidationFlags, 0, sizeof(bool) * CACHE_MAX_HITBOXES);
-    memset(m_CacheValidationFlags, 0, sizeof(bool) * CACHE_MAX_HITBOXES);
-    m_CacheInternal.clear();
-    m_CacheInternal.shrink_to_fit();
-    bones.clear();
-    bones.shrink_to_fit();
-    m_nNumHitboxes = 0;
-    m_bInit        = false;
-    m_bModelSet    = false;
-    m_bSuccess     = false;
-    m_pLastModel   = nullptr;
-    bones_setup    = false;
-}
-
 CachedHitbox *EntityHitboxCache::GetHitbox(int id)
 {
-    if (m_CacheValidationFlags[id])
+    if ((m_CacheValidationFlags >> id) & 1)
         return &m_CacheInternal[id];
     mstudiobbox_t *box;
 
@@ -236,17 +186,8 @@ CachedHitbox *EntityHitboxCache::GetHitbox(int id)
     VectorTransform(box->bbmax, GetBones(shdr->numbones)[box->bone], m_CacheInternal[id].max);
     m_CacheInternal[id].bbox   = box;
     m_CacheInternal[id].center = (m_CacheInternal[id].min + m_CacheInternal[id].max) / 2;
-    m_CacheValidationFlags[id] = true;
+    m_CacheValidationFlags |= 1ULL << id;
     return &m_CacheInternal[id];
 }
 
-EntityHitboxCache array[MAX_ENTITIES]{};
-
-void Update()
-{
-}
-
-void Invalidate()
-{
-}
 } // namespace hitbox_cache

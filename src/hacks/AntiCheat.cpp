@@ -46,27 +46,25 @@ void SetRage(player_info_t info)
         playerlist::ChangeState(info.friendsID, playerlist::k_EState::RAGE);
 }
 
-void CreateMove()
+static void CreateMove()
 {
     if (!enable)
         return;
     angles::Update();
     ac::aimbot::player_orgs().clear();
-    for (int i = 1; i <= g_IEngine->GetMaxClients(); i++)
+    for (auto const &ent : entity_cache::player_cache)
     {
-        if (skip_local && (i == g_IEngine->GetLocalPlayer()))
+        if (skip_local && ent == LOCAL_E)
             continue;
-        CachedEntity *ent = ENTITY(i);
+
         if (CE_GOOD(ent))
         {
-            if (ent->m_bAlivePlayer())
+
+            if (player_tools::shouldTarget(ent) || ent == LOCAL_E)
             {
-                if (player_tools::shouldTarget(ent) || ent == LOCAL_E)
-                {
-                    ac::aimbot::Update(ent);
-                    ac::antiaim::Update(ent);
-                    ac::bhop::Update(ent);
-                }
+                ac::aimbot::Update(ent);
+                ac::antiaim::Update(ent);
+                ac::bhop::Update(ent);
             }
         }
     }

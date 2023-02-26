@@ -22,7 +22,7 @@ void Update()
         return;
     // Find flags if missing
     if (!flags[0].ent || !flags[1].ent)
-        for (auto &ent : entity_cache::valid_ents)
+        for (auto const &ent : entity_cache::valid_ents)
         {
             // We cannot identify a bad entity as a flag due to the unreliability of it
             if (ent->m_iClassID() != CL_CLASS(CCaptureFlag))
@@ -166,7 +166,7 @@ void Update()
         for (auto &entry : payloads)
             entry.clear();
 
-        for (auto &ent : entity_cache::valid_ents)
+        for (auto const &ent : entity_cache::valid_ents)
         {
 
             // Not the object we need or invalid (team)
@@ -192,7 +192,7 @@ std::optional<Vector> getClosestPayload(Vector source, int team)
     std::optional<Vector> best_pos;
 
     // Find best payload
-    for (auto payload : entry)
+    for (auto &payload : entry)
     {
         if (CE_BAD(payload) || payload->m_iClassID() != CL_CLASS(CObjectCartDispenser))
             continue;
@@ -215,7 +215,7 @@ void LevelInit()
 namespace cpcontroller
 {
 
-std::array<cp_info, MAX_CONTROL_POINTS> controlpoint_data;
+std::array<cp_info, MAX_CONTROL_POINTS+1> controlpoint_data;
 CachedEntity *objective_resource = nullptr;
 
 struct point_ignore
@@ -240,7 +240,7 @@ void UpdateObjectiveResource()
     if (CE_GOOD(objective_resource) && objective_resource->m_iClassID() == CL_CLASS(CTFObjectiveResource))
         return;
     // Find ObjectiveResource and gamerules
-    for (auto &ent : entity_cache::valid_ents)
+    for (auto const &ent : entity_cache::valid_ents)
     {
         if (ent->m_iClassID() != CL_CLASS(CTFObjectiveResource))
             continue;
@@ -376,11 +376,11 @@ void UpdateControlPoints()
     // Clear the invalid controlpoints
     if (num_cp <= MAX_CONTROL_POINTS)
         for (int i = num_cp; i < MAX_CONTROL_POINTS; i++)
-            controlpoint_data.at(i) = cp_info();
+            controlpoint_data[i] = cp_info();
 
     for (int i = 0; i < num_cp; i++)
     {
-        auto &data    = controlpoint_data.at(i);
+        auto &data    = controlpoint_data[i];
         data.cp_index = i;
 
         // Update position (m_vCPPositions[index])
@@ -390,7 +390,7 @@ void UpdateControlPoints()
     if (capstatus_update.test_and_set(1000))
         for (int i = 0; i < num_cp; i++)
         {
-            auto &data = controlpoint_data.at(i);
+            auto &data = controlpoint_data[i];
             // Check accessibility for both teams, requires alot of checks
             data.can_cap.at(0) = isPointUseable(i, TEAM_RED);
             data.can_cap.at(1) = isPointUseable(i, TEAM_BLU);
@@ -470,7 +470,7 @@ void Update()
 } // namespace cpcontroller
 
 // Main handlers
-void CreateMove()
+static void CreateMove()
 {
     flagcontroller::Update();
     plcontroller::Update();
